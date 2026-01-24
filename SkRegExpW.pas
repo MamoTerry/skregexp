@@ -151,7 +151,7 @@ type
 
   TREPosixClassKind = (pckNone, pckAlnum, pckAlpha, pckAscii, pckBlank,
     pckCntrl, pckDigit, pckGraph, pckLower, pckPrint, pckUpper, pckPunct,
-    pckSpace, pckSpacePerl, pckSpaceVertical, pckSpaceHorizontal, pckXdigit, 
+    pckSpace, pckSpacePerl, pckSpaceVertical, pckSpaceHorizontal, pckXdigit,
     pckWord, pckAny, pckAssigned);
   TREPosixClassKinds = set of TREPosixClassKind;
 
@@ -1187,7 +1187,7 @@ type
     function Add(Value: TRELoopStateItem): Integer;
     property Items[Index: Integer]: TRELoopStateItem read GetItem write SetItem; default;
   end;
-  
+
   TREBranchState = class
   private
     FState: Integer;
@@ -1213,7 +1213,7 @@ type
     property Code: TRECode read GetCode;
     property State: Integer read GetState;
   end;
-  
+
   TREBranchStateRec = record
     State, Count: Integer;
   end;
@@ -4396,8 +4396,30 @@ begin
   Result := IsStar;
   StartP := AStr;
 
+(*
+ユーザーが行頭にある`*`という文字を正規表現で探そうとして、本来なら`^\*` で探すべき所を `^*` と間違ってしまった場合。
+「フリーズ（無限ループ）してしまう」ことを修正
+
+呼び出し側でコントロール
+  try
+
+  except
+    on E: ESkRegExpRuntime do
+    begin
+      ShowMessage('正規表現エラー: ' + E.Message);
+      Result := False;     // 検索失敗として扱う
+    end;
+  end;
+
+*)
   while (AStr < FRegExp.FMatchEndP) and IsEqual(AStr, Len) do
+  begin
+//Terry 2025/12/31: 0文字マッチ（進んでいない）かつ繰り返しを要求された場合はエラーとする
+    if Len = 0 then
+      FRegExp.Error('繰り返す対象がありません');
+
     Inc(AStr, Len);
+  end;
 
   if not Result then
     Result := AStr - StartP > 0;
@@ -10098,8 +10120,33 @@ function TREParser.Primay: TRECode;
     if ACode is TREBinCode then
     begin
       case (ACode as TREBinCode).FOp of
-        opStar, opPlus, opBound, opLoop:
-            FLex.Error(sBehindMatchNotVariableLength);
+{        opStar, opPlus, opBound, opLoop:
+            FLex.Error(sBehindMatchNotVariableLength);}
+         opStar, opPlus, opLoop:
+//Terry 2022/08/31
+//        opBound:を外した
+(*
+---------------------------
+)...戻り読み内で可変長文字列は使えません; (?<=あ{3})あ <--
+---------------------------
+「(?<=戻り読み)」で可変長を使えないのはその通りだが
+「{3}」は３回繰り返すという意味であり、可変長ではない。
+「(?<=あ{3})あ」＝「(?<=あああ)あ」
+
+同じく可変長を使えない「(?=先読み)」で「あ(?=あ{3})」をしても怒られないし、正規表現デバッグでは両方正常にヒットする。
+*)
+        FLex.Error(sBehindMatchNotVariableLength);
+        opBound:begin
+                  if not FLex.FIsBound then//固定？
+                  begin
+                    if (ACode as TREBinCode).Left <> nil then
+                      CheckVariableLength((ACode as TREBinCode).Left);
+                    if (ACode as TREBinCode).Right <> nil then
+                      CheckVariableLength((ACode as TREBinCode).Right);
+                  end else FLex.Error(sBehindMatchNotVariableLength);
+{                  S:=(ACode as TREBinCode).FGroupName;
+                  if S='' then FLex.Error(sBehindMatchNotVariableLength);}
+                end;
         else
           begin
             if (ACode as TREBinCode).Left <> nil then
@@ -12224,7 +12271,7 @@ begin
         if not FHasAccept then
         begin
           if (FBEntryState = AEntry) and AState.IsJoinMatch and
-              not ACode.IsVariable and 
+              not ACode.IsVariable and
               not (ACode is TREAnyCharCode)
 {$IFDEF USE_UNICODE_PROPERTY}
               and not (ACode is TRECombiningSequence)
@@ -15743,9 +15790,9 @@ end;
 procedure TREMatchEngine.SetupLeadMatch(ALeadCharMode: TRELeadCharMode);
 begin
   case FLeadCharMode of
-    lcmHasLead: 
+    lcmHasLead:
       IsLeadMatch := IsLeadCode;
-    lcmLeadMap: 
+    lcmLeadMap:
       IsLeadMatch := IsLeadMap;
     lcmNone:
       IsLeadMatch := IsLeadAllMatch;
