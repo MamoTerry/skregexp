@@ -78,6 +78,18 @@ const
   CONST_TrieHashMax = 15;
   CONST_GroupMax = 65535;
 
+type//Terry この項目については、のちに詳細コメントをつける
+  TReplaceResult =class(TObject)
+  private
+    FReplaceStr :string;
+    FFindPos    :integer;
+    FFindLen    :integer;
+  public
+    property ReplaceStr : string  read FReplaceStr write FReplaceStr;
+    property FindPos : integer read FFindPos write FFindPos;
+    property FindLen : integer read FFindLen write FFindLen;
+  end;
+
 type
   { Exception }
   { 例外 }
@@ -1609,6 +1621,7 @@ type
     function GetLength: Integer; inline;
     function GetStrings: REString; inline;
     procedure SetLineBreakKind(const Value: TRELineBreakKind);
+    procedure ClearReplaceResultList;//Terry
   protected
     procedure ClearCodeList;
     { FBinCodeListをクリアする。
@@ -1629,10 +1642,11 @@ type
     function IsAlreadyTried(NFACode: TRENFAState; const AStr: PWideChar): Boolean;
 {$ENDIF CHECK_MATCH_EXPLOSION}
 
-    function MatchCore(AStr: PWideChar): Boolean;
+   function MatchCore(AStr: PWideChar): Boolean;
 
     procedure DoReplaceFunc(Sender: TObject; var ReplaceWith: REString);
   public
+    ReplaceResultList:TList;//Terry
     IsLineBreak: TREIsLineBreakMethod;
 //
     constructor Create;
@@ -1653,7 +1667,7 @@ type
     function Substitute(const ATemplate: REString): REString;
 
     function Replace(const Input, Replacement: REString; Count: Integer = 0;
-      AOffset: Integer = 1): REString; overload;
+      AOffset: Integer = 1;NeedOffset:Boolean=False): REString; overload;
     function Replace(const Input: REString;
       AReplaceFunc: TSkRegExpReplaceFunction; Count: Integer = 0;
       AOffset: Integer = 1): REString; overload;
@@ -1794,6 +1808,13 @@ var
   SkRegExpDefaultLineBreakind: TRELineBreakKind = lbAnyCRLF;
 
 implementation
+
+uses Windows;
+// デバッグ出力用ヘルパー
+procedure ODS(const Msg: string);
+begin
+  OutputDebugString(PChar(Msg));
+end;
 
 const
   CONST_VERSION = '3.1.12';
@@ -4226,6 +4247,7 @@ var
   Ch: UChar;
   LFold: TUnicodeMultiChar;
   NextP: PWideChar;
+  SAVE_ASTR:PWideChar;//Terry 2024/08/14 https://www.petitmonte.com/bbs/answers?question_id=30188
 begin
   ClearUnicodeMultiChar(LFold);
 
@@ -4259,13 +4281,20 @@ ReStart:
       if (FMatchCount > 0) and Node.IsHead then
         Break;
 
-      if FStartP = nil then
-        FStartP := AStr;
+//      if FStartP = nil then
+//        FStartP := AStr;
+      if Node.IsHead then SAVE_ASTR := AStr;//
 
       Inc(AStr, L);
 
-      if Node.Accepted then
+//      if Node.Accepted then
+      if (Node.Accepted) and (FMatchCount = 0) then //ここから
       begin
+        if (FStartP = nil) then
+        begin
+          FStartP :=  SAVE_ASTR;
+        end;                             //ここまで
+
         if FRoot.Options <> [] then
         begin
           if RECompareString(FStartP,
@@ -4396,25 +4425,9 @@ begin
   Result := IsStar;
   StartP := AStr;
 
-(*
-ユーザーが行頭にある`*`という文字を正規表現で探そうとして、本来なら`^\*` で探すべき所を `^*` と間違ってしまった場合。
-「フリーズ（無限ループ）してしまう」ことを修正
-
-呼び出し側でコントロール
-  try
-
-  except
-    on E: ESkRegExpRuntime do
-    begin
-      ShowMessage('正規表現エラー: ' + E.Message);
-      Result := False;     // 検索失敗として扱う
-    end;
-  end;
-
-*)
   while (AStr < FRegExp.FMatchEndP) and IsEqual(AStr, Len) do
   begin
-//Terry 2025/12/31: 0文字マッチ（進んでいない）かつ繰り返しを要求された場合はエラーとする
+//Terry: 0文字マッチ（進んでいない）かつ繰り返しを要求された場合はエラーとする
     if Len = 0 then
       FRegExp.Error('繰り返す対象がありません');
 
@@ -14507,6 +14520,8 @@ var
   LMatchKind: TRELoopKind;
   SubP, BufP, SaveP:PWideChar;
   IsMatched, IsLoopMatched: Boolean;
+  TestState: TRENFAState;
+  TestP: PWideChar;
 {$IFDEF SKREGEXP_DEBUG}
   CurrentNFA: TRENFAState;
 {$ENDIF}
@@ -15328,49 +15343,68 @@ begin
           end;
         nkBehindNoMatch:
           begin
-            SubP := AStr;
-            LMax := NFACode.Max;
-            LMin := NFACode.Min;
+                    SubP := AStr;
+                    LMax := NFACode.Max;
+                    LMin := NFACode.Min;
 
-            EndCode := FStateList[NFACode.ExtendTo];
-            EntryCode := FStateList[NFACode.TransitTo];
-            NFACode := FStateList[EndCode.TransitTo];
+                    EndCode := FStateList[NFACode.ExtendTo];
+                    EntryCode := FStateList[NFACode.TransitTo];
 
-            if LMin = LMax then
-              Len := LMin
-            else
-              Len := LMax - LMin + 1;
+                    if LMin = LMax then
+                      Len := LMin
+                    else
+                      Len := LMax;
 
-            if FRegExp.FMatchTopP > (SubP - Len) then
-              Len := AStr - FRegExp.FMatchTopP;
+                    if FRegExp.FMatchTopP > (SubP - Len) then
+                      Len := AStr - FRegExp.FMatchTopP;
 
-            if Len >= LMin then
-            begin
-              CharPrev(SubP, Len);
-              SaveP := SubP;
-
-              IsMatched := MatchSpecial(EntryCode, EndCode, SubP);
-              if IsMatched and (SubP <> AStr) then
-                IsMatched := False;
-
-              while not IsMatched do
-              begin
-                SubP := SaveP;
-                CharNext(SubP);
-                SaveP := SubP;
-                if AStr - SubP >= LMin then
-                begin
-                  IsMatched := MatchSpecial(EntryCode, EndCode, SubP);
-                  if IsMatched and (SubP <> AStr) then
                     IsMatched := False;
-                end
-                else
-                  Break;
-              end;
 
-              if IsMatched then
-                NFACode := nil;
-            end;
+                    if Len >= LMin then
+                    begin
+                      // 検索開始位置まで戻る
+                      CharPrev(SubP, Len);
+                      SaveP := SubP;
+
+                      // 1. 初回位置のチェック
+                      // MatchSpecialを使うことでスタックを分離し、安全に実行する
+                      TestState := EntryCode;
+                      if MatchSpecial(TestState, EndCode, SubP) then
+                      begin
+                        // マッチし、かつ終了位置が現在位置(AStr)と一致する場合のみ「ヒット」とみなす
+                        if SubP = AStr then
+                          IsMatched := True;
+                      end;
+
+                      // 2. 1文字ずつ進めながらチェック
+                      while not IsMatched do
+                      begin
+                        SubP := SaveP;
+                        CharNext(SubP);
+                        SaveP := SubP;
+
+                        // 残りの長さが最小長(LMin)より短くなったら終了
+                        if AStr - SubP >= LMin then
+                        begin
+                          TestState := EntryCode;
+                          if MatchSpecial(TestState, EndCode, SubP) then
+                          begin
+                            if SubP = AStr then
+                              IsMatched := True;
+                          end;
+                        end
+                        else
+                          Break;
+                      end;
+                    end;
+
+                    SubP := AStr; // ポインタを復元
+
+                    // 否定戻り読みなので、マッチしたら失敗(nil)、マッチしなければ成功(Next)
+                    if IsMatched then
+                      NFACode := nil
+                    else
+                      NFACode := FStateList[NFACode.TransitTo];
           end;
         nkIfMatch:
           begin
@@ -15974,6 +16008,20 @@ begin
     FMatchExplosionState[I] := nil;
   end;
 end;
+procedure TSkRegExp.ClearReplaceResultList;
+var
+  i:integer;
+begin
+  if ReplaceResultList<>nil then
+  begin
+    for i:=ReplaceResultList.Count-1 downto 0 do
+    begin
+      TReplaceResult(ReplaceResultList.Items[i]).Free;
+    end;
+    ReplaceResultList.Clear;
+  end;
+end;
+
 {$ENDIF}
 
 procedure TSkRegExp.ClearStateList;
@@ -16032,6 +16080,7 @@ end;
 constructor TSkRegExp.Create;
 begin
   inherited Create;
+  ReplaceResultList:=TList.Create;//Terry
   FGroups := TGroupCollection.Create(Self);
   FCodeList := TList.Create;
   FBinCodeList := TList.Create;
@@ -16409,6 +16458,11 @@ begin
 {$IFDEF CHECK_MATCH_EXPLOSION}
   ClearMatchExplosionState;
 {$ENDIF}
+//Teryy
+  ClearReplaceResultList;
+  ReplaceResultList.Free;
+
+
   ClearStateList;
   ClearBinCodeList;
   ClearCodeList;
@@ -17027,14 +17081,18 @@ begin
 end;
 
 function TSkRegExp.Replace(const Input, Replacement: REString;
-  Count, AOffset: Integer): REString;
+  Count, AOffset: Integer;NeedOffset:Boolean): REString;
 var
   Index, LCount: Integer;
   RepStr: REString;
   LReplacement: REString;
+  DataItem:TReplaceResult;//Terry
+  RepStrOffset:integer;//Terry
 begin
+  ClearReplaceResultList;//Terry
   Result := '';
   LCount := 0;
+  RepStrOffset:=0;//Terry
   InputString := Input;
   Index := 1;
   LReplacement := DecodeEscape(Replacement);
@@ -17042,7 +17100,7 @@ begin
   if ExecPos(AOffset) then
   begin
     repeat
-      if FGroups[0].Length > 0 then
+//      if FGroups[0].Length > 0 then
       begin
         if (Count > 0) then
         begin
@@ -17054,7 +17112,15 @@ begin
         RepStr := Substitute(LReplacement);
         if Assigned(FOnReplace) then
           FOnReplace(Self, RepStr);
-
+          DataItem:=TReplaceResult.Create;
+          DataItem.ReplaceStr:=RepStr;
+          DataItem.FindPos:=FGroups[0].Index;
+          if NeedOffset then DataItem.FindPos:=DataItem.FindPos+RepStrOffset;
+//Terry
+          RepStrOffset:=RepStrOffset+System.Length(RepStr)-System.Length(FGroups[0].Strings);
+          DataItem.FindLen:=FGroups[0].Length;
+          ReplaceResultList.Add(DataItem);
+//Terry
         Result := Result + Copy(Input, Index, FGroups[0].Index - Index)
           + RepStr;
         Index := FGroups[0].Index + FGroups[0].Length;
