@@ -10123,8 +10123,9 @@ function TREParser.Primay: TRECode;
 {        opStar, opPlus, opBound, opLoop:
             FLex.Error(sBehindMatchNotVariableLength);}
          opStar, opPlus, opLoop:
-//Terry 2022/08/31
-//        opBound:を外した
+        FLex.Error(sBehindMatchNotVariableLength);
+//Terry 2026/01/25
+//       Error から opBound:を外した
 (*
 ---------------------------
 )...戻り読み内で可変長文字列は使えません; (?<=あ{3})あ <--
@@ -10135,17 +10136,15 @@ function TREParser.Primay: TRECode;
 
 同じく可変長を使えない「(?=先読み)」で「あ(?=あ{3})」をしても怒られないし、正規表現デバッグでは両方正常にヒットする。
 *)
-        FLex.Error(sBehindMatchNotVariableLength);
         opBound:begin
-                  if not FLex.FIsBound then//固定？
+                  // Terry: 修正 - ノード自身のMin/Maxで固定長判定を行う
+                  if (ACode as TREBinCode).Min = (ACode as TREBinCode).Max then
                   begin
                     if (ACode as TREBinCode).Left <> nil then
                       CheckVariableLength((ACode as TREBinCode).Left);
                     if (ACode as TREBinCode).Right <> nil then
                       CheckVariableLength((ACode as TREBinCode).Right);
                   end else FLex.Error(sBehindMatchNotVariableLength);
-{                  S:=(ACode as TREBinCode).FGroupName;
-                  if S='' then FLex.Error(sBehindMatchNotVariableLength);}
                 end;
         else
           begin
