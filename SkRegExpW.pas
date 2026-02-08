@@ -56,6 +56,7 @@ interface
 uses
   SysUtils,
   Classes,
+  Math, TypInfo, //Terry
   Contnrs,
 {$IFDEF SKREGEXP_DEBUG}
 //  Comctrls,
@@ -1654,6 +1655,7 @@ type
 
     { 正規表現を構文解析し、NFAを生成する }
     procedure Compile;
+    procedure DumpNFA_Debug;
 
     procedure Error(const ErrorMes: REString);
 
@@ -11679,6 +11681,11 @@ begin
             NFACode := AddTransition(nkQuest, AEntry, AWayout, Left, AGroupIndex,
               ABranchLevel, 0, 1);
 
+            // --- Terry: 追加 (最適化データの登録漏れ修正) ---
+            if (FBEntryState = AEntry) and not FInBranch then
+              FOptimizeData.Add(nil, odkLead, AOffset);
+            // ---------------------------------------------
+
             if (AMatchLen.Max > -1) and (Left.CharLength.Max > -1) then
               Inc(AMatchLen.Max, Left.CharLength.Max)
             else
@@ -11751,6 +11758,11 @@ begin
 
             NFACode := AddTransition(nkLoop, AEntry, State1, nil, AGroupIndex,
               ABranchLevel, FMin, FMax);
+
+            // --- Terry: 追加 (最適化データの登録漏れ修正) ---
+            if (FBEntryState = AEntry) and not FInBranch then
+              FOptimizeData.Add(nil, odkLead, AOffset);
+            // ---------------------------------------------
 
             LLoopState := TRELoopStateItem.Create;
             LLoopIndex := FRegExp.FLoopState.Add(LLoopState);
@@ -14522,10 +14534,24 @@ var
   IsMatched, IsLoopMatched: Boolean;
   TestState: TRENFAState;
   TestP: PWideChar;
+  CurrentID: Integer;//Terry
 {$IFDEF SKREGEXP_DEBUG}
   CurrentNFA: TRENFAState;
 {$ENDIF}
 begin
+  // Terry  --- 追加ログ ---
+  if NFACode <> nil then
+    CurrentID := FStateList.IndexOf(NFACode)
+  else
+    CurrentID := -1;
+
+  if NFACode <> nil then
+    ODS(Format('MatchPrim: ID=%d Kind=%d Pos="%s"', [CurrentID, Ord(NFACode.Kind), Copy(AStr, 1, 5)]))
+  else
+    ODS('MatchPrim: NFACode is nil');
+  // ----------------
+
+
   Result := False;
   LStackIndex := Stack.Index;
 
@@ -16043,6 +16069,47 @@ begin
     end;
     FStateList.Clear;
   end;
+end;
+
+procedure TSkRegExp.DumpNFA_Debug;
+var
+  i: Integer;
+  State: TRENFAState;
+  KindStr: string;
+  NextID: Integer;
+begin
+  ODS('=== NFA DUMP START ===');
+  ODS('Expression: ' + Self.Expression);
+
+  if FStateList = nil then
+  begin
+    ODS('Error: FStateList is nil');
+    Exit;
+  end;
+
+  for i := 0 to FStateList.Count - 1 do
+  begin
+    State := TRENFAState(FStateList[i]);
+
+    // TypInfoを使って Kind の名前（nkChar等）を自動取得
+    KindStr := GetEnumName(TypeInfo(TRENFAKind), Ord(State.Kind));
+
+    // 文字の場合は中身も表示
+    if State.Kind = nkChar then
+      KindStr := KindStr + '(' + WideChar(State.Code) + ')';
+
+    // NextオブジェクトのID（インデックス）を計算
+    if State.Next <> nil then
+      NextID := FStateList.IndexOf(State.Next)
+    else
+      NextID := -1;
+
+    ODS(Format('ID=%d: %s', [i, KindStr]));
+    ODS(Format('    TransitTo=%d, ExtendTo=%d, Next=%d',
+      [State.TransitTo, State.ExtendTo, NextID]));
+    ODS(Format('    Min=%d, Max=%d', [State.Min, State.Max]));
+  end;
+  ODS('=== NFA DUMP END ===');
 end;
 
 procedure TSkRegExp.Compile;
