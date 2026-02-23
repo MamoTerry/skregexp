@@ -14534,24 +14534,12 @@ var
   IsMatched, IsLoopMatched: Boolean;
   TestState: TRENFAState;
   TestP: PWideChar;
-  CurrentID: Integer;//Terry
+  NextState: TRENFAState; //Terry
+  TempP: PWideChar; // Terry
 {$IFDEF SKREGEXP_DEBUG}
   CurrentNFA: TRENFAState;
 {$ENDIF}
 begin
-  // Terry  --- 追加ログ ---
-  if NFACode <> nil then
-    CurrentID := FStateList.IndexOf(NFACode)
-  else
-    CurrentID := -1;
-
-  if NFACode <> nil then
-    ODS(Format('MatchPrim: ID=%d Kind=%d Pos="%s"', [CurrentID, Ord(NFACode.Kind), Copy(AStr, 1, 5)]))
-  else
-    ODS('MatchPrim: NFACode is nil');
-  // ----------------
-
-
   Result := False;
   LStackIndex := Stack.Index;
 
@@ -14682,6 +14670,89 @@ begin
             else
               BranchCode := nil;
 
+            if EntryCode.Code.ExecRepeat(AStr, NFACode.Kind = nkStar) then
+            begin
+              if LMatchKind = lkAny then
+              begin
+                Len := 1;
+                if NFACode.Kind = nkPlus then
+                  CharNext(SubP);
+
+                while SubP < AStr do
+                begin
+                  BranchSetup(NextCode, Stack, SubP, True);
+                  if BranchCode <> nil then
+                    BranchSetup(BranchCode, Stack, SubP, True);
+
+                  CharNext(SubP, Len);
+                end;
+
+                NFACode := NextCode;
+              end
+{$IFDEF USE_UNICODE_PROPERTY}
+              else if LMatchKind = lkCombiningSequence then
+              begin
+                TempP := SubP;
+                AStr := FRegExp.FMatchEndP;
+
+                if NFACode.Kind = nkPlus then
+                  CharNextForCombiningSequence(TempP);
+
+                while TempP < AStr do
+                begin
+                  BranchSetup(NextCode, Stack, TempP, True);
+                  if BranchCode <> nil then
+                    BranchSetup(BranchCode, Stack, TempP, True);
+
+                  CharNextForCombiningSequence(TempP);
+                end;
+
+                NFACode := NextCode;
+              end
+{$ENDIF USE_UNICODE_PROPERTY}
+              else
+              begin
+                if LMatchKind <> lkPossessive then
+                begin
+                  Len := EntryCode.Code.CharLength.Min;
+                  if Len < 1 then Len := 1;
+
+                  if NFACode.Kind = nkPlus then
+                    CharNext(SubP, Len);
+
+                  while SubP < AStr do
+                  begin
+                    BranchSetup(NextCode, Stack, SubP, True);
+                    if BranchCode <> nil then
+                      BranchSetup(BranchCode, Stack, SubP, True);
+
+                    CharNext(SubP, Len);
+                  end;
+
+                  NFACode := NextCode;
+                end
+                else
+                begin
+                  Stack.Remove(BaseIndex);
+                  NFACode := NextCode;
+                  if not FRegExp.FHasReference and (AStr - SaveP > 0) then
+                    FSkipP := AStr;
+                end;
+              end;
+            end
+            else
+              NFACode := nil;
+(*            SubP := AStr;
+            SaveP := AStr;
+            LMatchKind := NFACode.MatchKind;
+            NextCode := FStateList[NFACode.TransitTo];
+            EntryCode := NFACode;
+
+            if NextCode.Kind = nkLoopEnd then
+              BranchCode := GetBranchCode(NextCode, NFACode)
+            else
+              BranchCode := nil;
+
             if EntryCode.Code.ExecRepeat(AStr, NFACode.Kind = nkStar)then
             begin
               if LMatchKind = lkAny then
@@ -14753,7 +14824,7 @@ begin
               end;
             end
             else
-              NFACode := nil;
+              NFACode := nil;*)
           end;
         nkQuest:
           begin
@@ -15247,9 +15318,11 @@ begin
           end;
         nkKeepPattern:
           begin
-            Stack.Clear;
             FGroups[0].StartP := AStr;
             NFACode := FStateList[NFACode.TransitTo];
+(*            Stack.Clear;
+            FGroups[0].StartP := AStr;
+            NFACode := FStateList[NFACode.TransitTo];*)
           end;
         nkGoSub:
           begin
@@ -15568,7 +15641,9 @@ ExitMatchPrim:
       end;
 
       if Stack.Index > LStackIndex then
-        Stack.Pop(NFACode, AStr)
+      begin
+        Stack.Pop(NFACode, AStr);
+      end
       else
         Break;
     end;
