@@ -15440,71 +15440,7 @@ begin
               NFACode := nil;
             end;
           end;
-(*        nkBehindNoMatch:
-          begin
-                    SubP := AStr;
-                    LMax := NFACode.Max;
-                    LMin := NFACode.Min;
-
-                    EndCode := FStateList[NFACode.ExtendTo];
-                    EntryCode := FStateList[NFACode.TransitTo];
-
-                    if LMin = LMax then
-                      Len := LMin
-                    else
-                      Len := LMax;
-
-                    if FRegExp.FMatchTopP > (SubP - Len) then
-                      Len := AStr - FRegExp.FMatchTopP;
-
-                    IsMatched := False;
-
-                    if Len >= LMin then
-                    begin
-                      // 検索開始位置まで戻る
-                      CharPrev(SubP, Len);
-                      SaveP := SubP;
-
-                      // 1. 初回位置のチェック
-                      // MatchSpecialを使うことでスタックを分離し、安全に実行する
-                      TestState := EntryCode;
-                      if MatchSpecial(TestState, EndCode, SubP) then
-                      begin
-                        // マッチし、かつ終了位置が現在位置(AStr)と一致する場合のみ「ヒット」とみなす
-                        if SubP = AStr then
-                          IsMatched := True;
-                      end;
-
-                      // 2. 1文字ずつ進めながらチェック
-                      while not IsMatched do
-                      begin
-                        SubP := SaveP;
-                        CharNext(SubP);
-                        SaveP := SubP;
-
-                        // 残りの長さが最小長(LMin)より短くなったら終了
-                        if AStr - SubP >= LMin then
-                        begin
-                          TestState := EntryCode;
-                          if MatchSpecial(TestState, EndCode, SubP) then
-                          begin
-                            if SubP = AStr then
-                              IsMatched := True;
-                          end;
-                        end
-                        else
-                          Break;
-                      end;
-                    end;
-
-                    SubP := AStr; // ポインタを復元
-
-                    // 否定戻り読みなので、マッチしたら失敗(nil)、マッチしなければ成功(Next)
-                    if IsMatched then
-                      NFACode := nil
-                    else
-                      NFACode := FStateList[NFACode.TransitTo];
-          end;*)
+//Terry
 nkBehindNoMatch:
           begin
             SubP := AStr;
