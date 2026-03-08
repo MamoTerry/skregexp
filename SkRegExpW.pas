@@ -15440,7 +15440,7 @@ begin
               NFACode := nil;
             end;
           end;
-        nkBehindNoMatch:
+(*        nkBehindNoMatch:
           begin
                     SubP := AStr;
                     LMax := NFACode.Max;
@@ -15504,6 +15504,76 @@ begin
                       NFACode := nil
                     else
                       NFACode := FStateList[NFACode.TransitTo];
+          end;*)
+nkBehindNoMatch:
+          begin
+            SubP := AStr;
+            LMax := NFACode.Max;
+            LMin := NFACode.Min;
+
+            EndCode := FStateList[NFACode.ExtendTo];
+            EntryCode := FStateList[NFACode.TransitTo];
+
+            if LMin = LMax then
+              Len := LMin
+            else
+              Len := LMax;
+
+            if FRegExp.FMatchTopP > (SubP - Len) then
+              Len := AStr - FRegExp.FMatchTopP;
+
+            IsMatched := False;
+
+            if Len >= LMin then
+            begin
+              CharPrev(SubP, Len);
+              SaveP := SubP;
+
+              while True do
+              begin
+                TestState := EntryCode;
+                TestP := SaveP;
+
+// 修正前: if MatchSpecial(TestState, EndCode, TestP) then
+                // 修正後: 第2引数を nil に変更
+                if MatchSpecial(TestState, nil, TestP) then
+                begin
+                  if TestP >= AStr then
+                  begin
+                    IsMatched := True;
+                    Break;
+                  end;
+                end
+                else
+                begin
+//                  ODS('[DEBUG] MatchSpecial Failed.');
+                end;
+
+                CharNext(SaveP);
+
+                if AStr - SaveP < LMin then
+                begin
+                  Break;
+                end;
+              end;
+            end
+            else
+            begin
+//              ODS('[DEBUG] Len < LMin. Skipping loop.');
+            end;
+
+            SubP := AStr;
+
+            if IsMatched then
+            begin
+              NFACode := nil;
+            end
+            else
+            begin
+              // ★修正の核心：NFACode.TransitTo ではなく EndCode.TransitTo へ遷移する
+//              ODS('[DEBUG] IsMatched is False. Moving to EndCode.TransitTo (Success).');
+              NFACode := FStateList[EndCode.TransitTo];
+            end;
           end;
         nkIfMatch:
           begin
